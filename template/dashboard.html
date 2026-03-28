@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard - Walmart Sales Predictor</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; }
+        .container { margin-top: 20px; }
+        .card { border: 1px solid #ddd; border-radius: 4px; padding: 15px; margin-bottom: 20px; }
+        .card-header { background-color: #f5f5f5; padding: 10px; margin: -15px -15px 15px; border-bottom: 1px solid #ddd; }
+        .chart-container { height: 400px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f2f2f2; }
+        tr:hover { background-color: #f5f5f5; }
+        .btn { padding: 8px 16px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }
+        .btn:hover { background-color: #45a049; }
+        .accuracy-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            color: white;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .accuracy-high { background-color: #4CAF50; }
+        .accuracy-medium { background-color: #FF9800; }
+        .accuracy-low { background-color: #F44336; }
+        .metrics-container {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .metric-box {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            flex: 1;
+            min-width: 150px;
+            margin: 5px;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .metric-label {
+            font-size: 14px;
+            color: #666;
+        }
+        .confidence-area {
+            background-color: rgba(75, 192, 192, 0.1);
+            border-top: 1px dashed rgba(75, 192, 192, 0.5);
+            border-bottom: 1px dashed rgba(75, 192, 192, 0.5);
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <h1>Walmart Sales Dashboard</h1>
+    <div class="container">
+        <!-- Model Accuracy Card -->
+        <div class="card">
+            <div class="card-header">
+                <h2>Model Accuracy</h2>
+            </div>
+            <div class="metrics-container">
+                <div class="metric-box">
+                    <div class="metric-value" id="accuracy-value">--</div>
+                    <div class="metric-label">Prediction Accuracy</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-value" id="mape-value">--</div>
+                    <div class="metric-label">Mean Absolute % Error</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-value" id="r2-value">--</div>
+                    <div class="metric-label">R² Score</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h2>Make a Prediction</h2>
+            </div>
+            <form id="predict-form">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div>
+                        <label for="start_date">Start Date:</label>
+                        <input type="date" id="start_date" name="start_date" required>
+                    </div>
+                    <div>
+                        <label for="store_id">Store ID:</label>
+                        <select id="store_id" name="store_id" required>
+                            <option value="">Select a store</option>
+                            <!-- Store options will be loaded dynamically -->
+                        </select>
+                    </div>
+                    <div>
+                        <label for="temperature">Temperature:</label>
+                        <input type="number" id="temperature" name="temperature" step="0.1" required>
+                    </div>
+                    <div>
+                        <label for="fuel_price">Fuel Price:</label>
+                        <input type="number" id="fuel_price" name="fuel_price" step="0.01" required>
+                    </div>
+                    <div>
+                        <label for="cpi">CPI:</label>
+                        <input type="number" id="cpi" name="cpi" step="0.01" required>
+                    </div>
+                    <div>
+                        <label for="unemployment">Unemployment:</label>
+                        <input type="number" id="unemployment" name="unemployment" step="0.01" required>
+                    </div>
+                    <div>
+                        <label for="num_weeks">Number of Weeks:</label>
+                        <input type="number" id="num_weeks" name="num_weeks" min="1" max="52" value="12" required>
+                    </div>
+                </div>
+                <button type="submit" class="btn" style="margin-top: 10px;">Predict</button>
+            </form>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h2>Sales Forecast</h2>
+            </div>
+            <div class="chart-container">
+                <canvas id="salesChart"></canvas>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h2>Store Statistics</h2>
+            </div>
+            <div id="store-stats">
+                <p>No store selected</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h2>Prediction Results</h2>
+            </div>
+            <table id="results-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Prediction</th>
+                        <th>Lower Bound</th>
+                        <th>Upper Bound</th>
+                        <th>Holiday</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Results will be inserted here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <p><a href="/">Back to Home</a></p>
+    <p><a href="/upload">Upload Data to Train Model</a></p>
+    
+    <script>
+        let salesChart;
+        
+        // Load available stores and model accuracy when page loads
+        document.addEventListener('DOMContentLoaded', async function() {
+            await loadStores();
+            await loadModelAccuracy();
+            setDefaultDate();
+        });
+        
+        // Set default date to current date
+        function setDefaultDate() {
+            const today = new Date();
+            const formattedDate = today.toISOString().substr(0, 10);
+            document.getElementById('start_date').value = formattedDate;
+        }
+        
+        // Load available stores
+        async function loadStores() {
+            try {
+                const response = await fetch('/stores');
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                const storeSelect = document.getElementById('store_id');
+                
+                if (data.stores && data.stores.length > 0) {
+                    data.stores.forEach(store => {
+                        const option = document.createElement('option');
+                        option.value = store;
+                        option.textContent = `Store ${store}`;
+                        storeSelect.appendChild(option);
+                    });
+                } else {
+                    storeSelect.innerHTML = '<option value="">No stores available</option>';
+                }
+            } catch (error) {
+                console.error("Failed to load stores:", error);
+            }
+        }
+        
+        // Load model accuracy metrics
+        async function loadModelAccuracy() {
+            try {
+                const response = await fetch('/accuracy');
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                document.getElementById('accuracy-value').textContent = `${data.accuracy.toFixed(1)}%`;
+                document.getElementById('mape-value').textContent = `${(data.mape * 100).toFixed(1)}%`;
+                document.getElementById('r2-value').textContent = data.r2.toFixed(2);
+                
+                // Apply color coding based on accuracy
+                const accuracyValue = document.getElementById('accuracy-value');
+                if (data.accuracy >= 90) {
+                    accuracyValue.classList.add('accuracy-high');
+                } else if (data.accuracy >= 75) {
+                    accuracyValue.classList.add('accuracy-medium');
+                } else {
+                    accuracyValue.classList.add('accuracy-low');
+                }
+                
+            } catch (error) {
+                console.error("Failed to load model accuracy:", error);
+            }
+        }
+        
+        document.getElementById('predict-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const params = new URLSearchParams(formData);
+            
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    body: params
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    displayResults(data.results);
+                    displayStoreStats(data.store_info);
+                    updateAccuracyDisplay(data.model_accuracy);
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (error) {
+                console.error("Prediction request failed:", error);
+                alert("Failed to fetch predictions. Check your network and server.");
+            }
+        });
+
+        function displayStoreStats(storeInfo) {
+            if (!storeInfo) return;
+            
+            const statsDiv = document.getElementById('store-stats');
+            statsDiv.innerHTML = `
+                <p><strong>Store ID:</strong> ${storeInfo.store_id}</p>
+                <p><strong>Average Weekly Sales:</strong> $${storeInfo.avg_sales.toLocaleString()}</p>
+                <p><strong>Standard Deviation:</strong> $${storeInfo.std_sales.toLocaleString()}</p>
+            `;
+        }
+        
+        function updateAccuracyDisplay(accuracyInfo) {
+            if (!accuracyInfo) return;
+            
+            document.getElementById('accuracy-value').textContent = `${accuracyInfo.accuracy_percentage}%`;
+            document.getElementById('mape-value').textContent = `${accuracyInfo.mape}%`;
+            document.getElementById('r2-value').textContent = accuracyInfo.r2_score;
+        }
+
+        function displayResults(results) {
+            if (!results || results.length === 0) {
+                alert("No results received.");
+                return;
+            }
+
+            // Update table
+            const tbody = document.querySelector('#results-table tbody');
+            tbody.innerHTML = '';
+            
+            results.forEach(result => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${result.date}</td>
+                    <td>$${result.prediction.toLocaleString()}</td>
+                    <td>$${result.lower_bound.toLocaleString()}</td>
+                    <td>$${result.upper_bound.toLocaleString()}</td>
+                    <td>${result.is_holiday ? 'Yes' : 'No'}</td>
+                `;
+                tbody.appendChild(row);
+            });
+
+            // Check if Chart.js is loaded
+            if (typeof Chart === 'undefined') {
+                alert("Chart.js failed to load.");
+                return;
+            }
+
+            // Update chart
+            const dates = results.map(r => r.date);
+            const predictions = results.map(r => r.prediction);
+            const lowerBounds = results.map(r => r.lower_bound);
+            const upperBounds = results.map(r => r.upper_bound);
+            const holidays = results.map(r => r.is_holiday);
+            
+            // Create highlighted points for holidays
+            const pointBackgroundColors = holidays.map(isHoliday => 
+                isHoliday ? 'red' : 'rgba(75, 192, 192, 0.2)'
+            );
+
+            if (salesChart) {
+                salesChart.destroy();
+            }
+
+            const ctx = document.getElementById('salesChart');
+            if (!ctx) {
+                console.error("Canvas element not found!");
+                return;
+            }
+
+            salesChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dates,
+                    datasets: [
+                        {
+                            label: 'Upper Bound',
+                            data: upperBounds,
+                            borderColor: 'rgba(75, 192, 192, 0.3)',
+                            backgroundColor: 'rgba(0, 0, 0, 0)',
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            borderWidth: 1,
+                            fill: false
+                        },
+                        {
+                            label: 'Predicted Sales ($)',
+                            data: predictions,
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                            tension: 0.1,
+                            pointBackgroundColor: pointBackgroundColors,
+                            pointRadius: 5,
+                            fill: false
+                        },
+                        {
+                            label: 'Lower Bound',
+                            data: lowerBounds,
+                            borderColor: 'rgba(75, 192, 192, 0.3)',
+                            backgroundColor: 'rgba(0, 0, 0, 0)',
+                            borderDash: [5, 5],
+                            pointRadius: 0,
+                            borderWidth: 1,
+                            fill: false
+                        },
+                        {
+                            label: 'Confidence Interval',
+                            data: upperBounds,
+                            borderColor: 'rgba(0, 0, 0, 0)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                            fill: '+2',  // Fill between upper bound and lower bound
+                            pointRadius: 0
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { 
+                            beginAtZero: false, 
+                            title: { display: true, text: 'Sales ($)' }
+                        },
+                        x: { 
+                            title: { display: true, text: 'Date' }
+                        }
+                    },
+                    plugins: { 
+                        tooltip: { 
+                            callbacks: { 
+                                afterLabel: ctx => {
+                                    if (holidays[ctx.dataIndex]) {
+                                        return 'Holiday';
+                                    }
+                                    
+                                    if (ctx.dataset.label === 'Predicted Sales ($)') {
+                                        return [
+                                            `Lower: $${lowerBounds[ctx.dataIndex].toLocaleString()}`,
+                                            `Upper: $${upperBounds[ctx.dataIndex].toLocaleString()}`
+                                        ];
+                                    }
+                                    return '';
+                                }
+                            }
+                        },
+                        legend: {
+                            labels: {
+                                filter: function(legendItem, data) {
+                                    // Hide "Confidence Interval" from legend
+                                    return legendItem.text !== 'Confidence Interval';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>

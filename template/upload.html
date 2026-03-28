@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Upload Training Data - Walmart Sales Predictor</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .container { margin-top: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; }
+        .btn { padding: 8px 16px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }
+        .btn:hover { background-color: #45a049; }
+        .alert { padding: 15px; margin-bottom: 20px; border: 1px solid transparent; border-radius: 4px; }
+        .alert-info { color: #31708f; background-color: #d9edf7; border-color: #bce8f1; }
+    </style>
+</head>
+<body>
+    <h1>Upload Training Data</h1>
+    
+    <div class="alert alert-info">
+        <p>Upload a CSV file with historical Walmart sales data to train the prediction model.</p>
+        <p>The CSV should include columns for: Date, Store, Weekly_Sales, Holiday_Flag, Temperature, Fuel_Price, CPI, and Unemployment.</p>
+    </div>
+    
+    <div class="container">
+        <form action="/train" method="post" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="file">Select CSV File:</label>
+                <input type="file" id="file" name="file" accept=".csv" required>
+            </div>
+            <button type="submit" class="btn">Train Model</button>
+        </form>
+    </div>
+    
+    <div id="result" style="margin-top: 20px;"></div>
+    
+    <p><a href="/">Back to Home</a></p>
+    <p><a href="/dashboard">View Dashboard</a></p>
+    
+    <script>
+        document.querySelector('form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            var formData = new FormData(this);
+            
+            fetch('/train', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                let resultDiv = document.getElementById('result');
+                if (data.status === 'success') {
+                    resultDiv.innerHTML = `
+                        <div class="alert alert-info">
+                            <h3>Model trained successfully!</h3>
+                            <p>Top 5 most important features:</p>
+                            <ul>
+                                ${Object.entries(data.feature_importances).map(([feature, importance]) => 
+                                    `<li>${feature}: ${importance.toFixed(4)}</li>`
+                                ).join('')}
+                            </ul>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="alert" style="background-color: #f2dede; color: #a94442; border-color: #ebccd1;">
+                            <h3>Error</h3>
+                            <p>${data.message}</p>
+                        </div>
+                    `;
+                }
+            })
+            .catch(error => {
+                document.getElementById('result').innerHTML = `
+                    <div class="alert" style="background-color: #f2dede; color: #a94442; border-color: #ebccd1;">
+                        <h3>Error</h3>
+                        <p>An error occurred: ${error}</p>
+                    </div>
+                `;
+            });
+        });
+    </script>
+</body>
+</html>
